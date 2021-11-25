@@ -1,0 +1,121 @@
+#include<stdio.h>
+#include<linux/tty.h>
+#include<stdlib.h>
+#include<ctype.h>
+#include<sys/types.h>
+#include<string.h>
+#define DIRSIZ 14
+struct direct{
+	ino_t d_ino;
+	char d_name[DIRSIZ];
+};
+#include<sys/dir.h>
+#define PAGESIZE 22
+
+#define EQ(s,t) (strcmp(s,t)==0)
+char *progname;
+
+
+spdist(char *s,char *t){
+    while(*s++ ==*t)
+        if(*t++ == '\0')
+            return 0;
+    if(*--s){
+        if(*t){
+            if(s[1] &&t[1] && *s==t[1] && *t == s[1] && EQ(s+2,t+2))
+                return 1;
+            if(EQ(s+1,t+1))
+                return 2;
+        }
+        if(EQ(s+1,t))
+            return 2;
+    }
+    if(*t && EQ(s,t+1))
+        return 2;
+    return 3;
+}
+mindist(dir, guess, best)
+    char *dir,*guess,*best;
+{
+    int d,nd,fd;
+    struct{
+        ino_t ino;
+        char name[DIRSIZ+1];
+
+    } nbuf;
+    nbuf.name[DIRSIZ] = '\0';
+    if(dir[0] =='\0'){
+        dir = ".";
+
+    }
+    d=3;
+    if((fd=open(dir,0))==-1)
+        return d;
+    while(read(fd,(char *)&nbuf,sizeof(struct direct))>0)
+        if(nbuf.ino){
+            nd = spdist(nbuf.name,guess);
+            if(nd<=d && nd!=3){
+                strcpy(best,nbuf.name);
+                d=nd;
+                if(d==0)
+                    break;
+            }
+        }
+    close(fd);
+    return d;
+}
+spname(char *oldname,char *newname){
+    char *p,guess[DIRSIZ+1],best[DIRSIZ+1];
+    char *new =newname;
+    char  *old =oldname;
+    for(;;){
+        while(*old == '/')
+            *new++=*old++;
+        *new = '\0';
+        if(*old == '\0')
+            return strcmp(oldname,newname) !=0;
+        p = guess;
+        for(;*old != '/' && *old != '\0';old++)
+            if(p<guess+DIRSIZ)
+                *p++=*old;
+        *p = '\0';
+        if(mindist(newname,guess,best)>=3)
+            return -1;
+        for(p=best;*new = *p++;)
+            new ++;
+    }
+}
+int main(int argc,char *argv[]){
+    FILE *fp;
+    int i,pagesize=PAGESIZE;
+    char *p,*getenv(),buf[BUFSIZ];
+    progname = argv[0];
+    if((p=getenv("PAGESIZE"))!=NULL)
+        pagesize = atoi(p);
+    if(argc>1&&argv[1][0]=='-'){
+        pagesize = atoi(&argv[1][1]);
+        argc--;
+        argv++;
+    }
+    if(argc==1){
+        print(stdin,pagesize);
+    }
+    else
+        for(i=1;i<argc;i++)
+                switch(spname(argv[i],buf)){
+                case -1:
+                    fp = fopen(argv[i],"r");
+                    break;
+                case 1:
+                    fprintf(stderr,"\"%s\"? ",buf);
+                    if(ttyin()=='n'){
+                        break;
+                    }
+                    argv[i]=buf;
+                case 0:
+                    fp = fopen(argv[i],"r");
+                    print(fp,pagesize);
+                    fclose(fp);
+                }
+    return 0;;
+}
